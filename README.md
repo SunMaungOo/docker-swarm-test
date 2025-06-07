@@ -138,7 +138,7 @@ Sample output:
 sudo docker swarm join --token SWMTKN-1-369wciwq2vp48e1fn46b6pnufypzikr6e1e0zqwxlamlvw5c4n-cozbhcgcy02hwxaap80xq2kjr 10.0.2.15:2377
 This node joined a swarm as a worker.
 ```
-```
+
 
 ### Step 5: Verify Swarm Status
 
