@@ -127,6 +127,8 @@ If ping succeeds, the issue is likely the firewall. On `fedora-node-1`, allow th
 
 ```bash
 sudo firewall-cmd --permanent --add-port=2377/tcp
+sudo firewall-cmd --permanent --add-port=7946/tcp
+sudo firewall-cmd --permanent --add-port=7946/udp
 sudo firewall-cmd --reload
 ```
 
