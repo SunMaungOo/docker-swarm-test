@@ -155,3 +155,37 @@ ID                            HOSTNAME                STATUS    AVAILABILITY   M
 cxv90mxb0zypcedv18ng8vgwz *   localhost.localdomain   Ready     Active         Leader           28.2.2
 g7z9ya6bo5268zhlto2o3exoc     localhost.localdomain   Ready     Active                          28.2.2
 ```
+
+### Step 7: Test Docker Swarm with a Simple Service
+
+To confirm that Docker Swarm is working correctly across both nodes, I will deploy a simple test service.
+
+We'll use the `alpine` image to create a service that pings `google.com` from each replica:
+
+```bash
+sudo docker service create --replicas 2 --name helloworld alpine ping google.com
+```
+
+The command above
+
+- Deploys a service called helloworld
+
+- Runs 2 replicas of the service (which should be distributed across the nodes)
+
+- Uses the alpine image
+
+- Executes ping google.com inside each container
+
+
+and checking it status 
+
+```
+sudo docker service ls
+```
+
+Sample output:
+
+```
+ID             NAME         MODE         REPLICAS   IMAGE           PORTS
+3zgq7abtjfxk   helloworld   replicated   2/2        alpine:latest
+```
