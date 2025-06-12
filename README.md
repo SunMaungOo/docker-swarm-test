@@ -191,3 +191,248 @@ Sample output:
 ID             NAME         MODE         REPLICAS   IMAGE           PORTS
 3zgq7abtjfxk   helloworld   replicated   2/2        alpine:latest
 ```
+
+## Step 8: Set Up CephFS for Distributed File System
+
+In a Docker **Swarm** environment, managing data volumes is different from standalone **Docker**. If you define a volume using the `volume` keyword like in Docker, each node will create and manage its own volume independently. This means only the container/task is replicated—not the data.
+
+To solve this, we need a shared volume accessible from all nodes. We’ll use **CephFS**, a POSIX-compliant distributed file system built on Ceph's object store.
+
+### Set Hostnames (if not already set)
+
+Assign hostnames to the nodes:
+
+```bash
+sudo hostnamectl set-hostname fedora-node-1  # Manager node
+sudo hostnamectl set-hostname fedora-node-2  # Worker node
+```
+
+### Overview
+
+CephFS requires a cluster setup. We'll configure:
+
+- `fedora-node-1` as the **manager** node
+- `fedora-node-2` as the **worker** node
+
+## Step 9: Set Up Ceph Cluster (Manager Node)
+
+First, install `cephadm` on the manager node:
+
+```bash
+curl -sLO https://github.com/ceph/ceph/raw/octopus/src/cephadm/cephadm
+chmod +x cephadm
+```
+
+Then bootstrap the Ceph cluster:
+
+```bash
+MYIP=$(ip route get 1.1.1.1 | grep -oP 'src \K\S+')
+sudo mkdir -p /etc/ceph
+sudo ./cephadm bootstrap --mon-ip $MYIP
+```
+
+Watch the logs during setup. If you see:
+
+```text
+podman|docker (/usr/sbin/docker) is present
+```
+
+…it means Ceph will run using Docker.
+
+A dashboard will also be deployed automatically:
+
+```text
+Ceph Dashboard is now available at:
+
+     URL: https://fedora-node-1:8443/
+    User: admin
+ Password: pti07yg1m0
+```
+
+## Step 10: Set Up Root Certificate Access (Manager & Worker)
+
+To allow Ceph to control the worker node, configure SSH root access from the manager:
+
+### On the worker node:
+
+```bash
+sudo ./cephadm install ceph-common
+```
+
+### On the manager node:
+
+```bash
+sudo ssh-copy-id -f -i /etc/ceph/ceph.pub root@10.0.2.4
+```
+
+Switch to the root user to generate and copy SSH keys:
+
+```bash
+su
+ssh-keygen
+ssh-copy-id root@10.0.2.4
+exit
+```
+
+## Step 11: Add Worker Node to the Cluster (Manager Node)
+
+Now, add the worker node to the Ceph cluster:
+
+```bash
+sudo ceph orch host add fedora-node-2 10.0.2.4
+```
+
+You should see:
+
+```text
+Added host 'fedora-node-2'
+```
+
+Verify with:
+
+```bash
+sudo ceph orch host ls
+```
+
+Expected output:
+
+```text
+HOST           ADDR           LABELS  STATUS  
+fedora-node-1  fedora-node-1                  
+fedora-node-2  10.0.2.4
+```
+
+## Step 12: Configure OSDs (Manager Node)
+
+OSDs (Object Storage Daemons) are the actual storage units used by Ceph.
+
+### List available storage devices:
+
+```bash
+sudo ceph orch device ls
+```
+
+Look for devices marked as `Available: Yes`.
+
+Example:
+
+```text
+Hostname       Path        Type  Serial               Size   Health   Available  
+fedora-node-1  /dev/sdb    hdd   VB2737e02b-9082c244  7516M  Unknown  Yes        
+fedora-node-2  /dev/sdb    hdd   VB48a76328-9a5f4e0d  7516M  Unknown  Yes        
+```
+
+### Dry run to preview OSD setup:
+
+```bash
+sudo ceph orch apply osd --all-available-devices --dry-run
+```
+
+Sample output:
+
+```text
++---------+-----------------------+---------------+----------+----+-----+
+|SERVICE  |NAME                   |HOST           |DATA      |DB  |WAL  |
++---------+-----------------------+---------------+----------+----+-----+
+|osd      |all-available-devices  |fedora-node-1  |/dev/sdb  |-   |-    |
+|osd      |all-available-devices  |fedora-node-2  |/dev/sdb  |-   |-    |
++---------+-----------------------+---------------+----------+----+-----+
+```
+
+### Apply the OSD configuration:
+
+```bash
+sudo ceph orch apply osd --all-available-devices
+```
+
+### Verify OSDs:
+
+```bash
+sudo ceph osd tree
+```
+
+Example:
+
+```text
+ID  CLASS  WEIGHT   TYPE NAME            STATUS  REWEIGHT  PRI-AFF
+-1         0.01358  root default                                 
+-3         0.00679      host fedora-node-1                       
+ 0    hdd  0.00679          osd.0          up   1.00000  1.00000
+-5         0.00679      host fedora-node-2                       
+ 1    hdd  0.00679          osd.1          up   1.00000  1.00000
+```
+
+If OSD creation fails, you may need to wipe the device:
+
+```bash
+sudo wipefs --all /dev/sdb
+```
+
+> ⚠️ **Warning:** This will erase **all data** on the device.
+
+## Step 13: Create a Ceph File System (Manager Node)
+
+Create the CephFS file system:
+
+```bash
+sudo ceph fs volume create ceph-fs-data
+```
+
+Verify it was created:
+
+```bash
+sudo ceph fs ls
+```
+
+Expected output:
+
+```text
+name: ceph-fs-data, metadata pool: cephfs.ceph-fs-data.meta, data pools: [cephfs.ceph-fs-data.data]
+```
+
+## Step 14: Prepare the Worker Node (Worker Node)
+
+Install the Ceph client tools:
+
+```bash
+sudo dnf install ceph-common
+```
+
+## Step 15: Copy Ceph Configuration (Manager Node)
+
+Copy the cluster configuration files to the worker node:
+
+```bash
+sudo scp /etc/ceph/* root@10.0.2.4:/etc/ceph
+```
+
+## Step 16: Mount the Ceph File System (Both Nodes)
+
+### On both nodes:
+
+1. Create a mount point:
+
+```bash
+sudo mkdir /mnt/ceph
+```
+
+2. Mount the Ceph file system:
+
+```bash
+sudo mount -t ceph 10.0.2.15:/ /mnt/ceph -o name=admin,conf=/etc/ceph/ceph.conf,mds_namespace=ceph-fs-data
+```
+
+3. Verify the mount:
+
+```bash
+mount | grep ceph
+```
+
+Expected output:
+
+```text
+10.0.2.15:/ on /mnt/ceph type ceph (rw,...,mds_namespace=ceph-fs-data)
+```
+
+✅ **Success!** Files placed in `/mnt/ceph` will now be **synchronously replicated** between both nodes in **both directions**.
+
