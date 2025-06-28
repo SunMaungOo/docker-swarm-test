@@ -20,6 +20,7 @@ This project sets up a basic data platform using Docker Swarm across two Fedora 
 - **Processors**: 4  
 - **Network**: NAT Network  
 - **Operating System**: Fedora Server 42
+- **Attached Storage**: 7 GB
 
 ### Components
 
